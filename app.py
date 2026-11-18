@@ -1,6 +1,6 @@
 import sqlite3
-from flask import Flask, render_template, request, session, redirect, url_for
-from werkzeug.security import generate_password_hash
+from flask import Flask, render_template, request, session, redirect, url_for, make_response
+from werkzeug.security import generate_password_hash, check_password_hash
 from database.db import get_db, init_db, seed_db
 
 app = Flask(__name__)
@@ -13,7 +13,11 @@ app.secret_key = "dev-secret-key"  # TODO: replace with env var in production
 
 @app.route("/")
 def landing():
-    return render_template("landing.html")
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+    response = make_response(render_template("landing.html"))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/register")
@@ -59,6 +63,28 @@ def login():
     return render_template("login.html", email=email)
 
 
+@app.route("/login", methods=["POST"])
+def login_post():
+    email    = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+
+    if not email or not password:
+        return render_template("login.html", error="All fields are required.")
+
+    db   = get_db()
+    user = db.execute(
+        "SELECT id, name, password_hash FROM users WHERE email = ?", (email,)
+    ).fetchone()
+    db.close()
+
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return render_template("login.html", error="Invalid email or password.")
+
+    session["user_id"]   = user["id"]
+    session["user_name"] = user["name"]
+    return redirect(url_for("landing"))
+
+
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
@@ -75,7 +101,8 @@ def privacy():
 
 @app.route("/logout")
 def logout():
-    return "Logout — coming in Step 3"
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/profile")
