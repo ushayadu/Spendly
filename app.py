@@ -1,7 +1,10 @@
-from flask import Flask, render_template
+import sqlite3
+from flask import Flask, render_template, request, session, redirect, url_for
+from werkzeug.security import generate_password_hash
 from database.db import get_db, init_db, seed_db
 
 app = Flask(__name__)
+app.secret_key = "dev-secret-key"  # TODO: replace with env var in production
 
 
 # ------------------------------------------------------------------ #
@@ -18,9 +21,42 @@ def register():
     return render_template("register.html")
 
 
+@app.route("/register", methods=["POST"])
+def register_post():
+    name     = request.form.get("name", "").strip()
+    email    = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    confirm  = request.form.get("confirm_password", "")
+
+    if not name or not email or not password or not confirm:
+        return render_template("register.html", error="All fields are required.")
+
+    if password != confirm:
+        return render_template("register.html", error="Passwords do not match.")
+
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+            (name, email, generate_password_hash(password)),
+        )
+        db.commit()
+        user = db.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+        session["user_id"]   = user["id"]
+        session["user_name"] = name
+        db.close()
+    except sqlite3.IntegrityError:
+        return render_template("register.html", error="An account with that email already exists.")
+
+    return redirect(url_for("login", email=email))
+
+
 @app.route("/login")
 def login():
-    return render_template("login.html")
+    email = request.args.get("email", "")
+    return render_template("login.html", email=email)
 
 
 # ------------------------------------------------------------------ #
